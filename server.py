@@ -15,9 +15,16 @@ import random
 import websockets
 import string
 import ssl
+import os
+import dotenv
 # Global scope #YOLO
 active_games = {
 }
+
+dotenv.load_dotenv('.env')
+WEBSOCKET_PORT = os.getenv('WEBSOCKET_PORT')
+FULLCHAIN_CERT_PATH = os.getenv('FULLCHAIN_CERT_PATH')
+PRIVKEY_PATH = os.getenv('PRIVKEY_PATH')
 
 # Because Python sucks
 class Game:
@@ -78,7 +85,9 @@ class Game:
     GAME_STATE_FINISHED = 2
 
     def _generate_name(self):
-        return ''.join(random.choice(string.ascii_uppercase) for i in range(8))
+        lobby_name = ''.join(random.choice(string.ascii_uppercase) for i in range(4))
+        print('lobby created with name', lobby_name)
+        return lobby_name
 
     def __init__(self, admin_socket):
         self.name = self._generate_name()
@@ -132,8 +141,12 @@ class Game:
     async def start_game(self):
         self.state = self.GAME_STATE_RUNNING
         await self.send_all({
+            "type": "garbage",
+            "garbage": Game.generate_garbage()
+        })
+        await self.send_all({
             "type": "start_game",
-            "tiles": self.generate_tiles()
+            "tiles": Game.generate_tiles(256)
         })
     
     def alive_count(self):
@@ -149,20 +162,54 @@ class Game:
                 return c
         return None
 
-    def generate_tiles(self):
+    # thx tolstoj
+    @staticmethod
+    def generate_garbage():
+        initial_stack = ""
+        tile_length = []
+        current_index = 0
+        sum = 0
+        while sum < 100:
+            random_length = random.randint(1, 5)
+            sum += random_length
+            tile_length.append(random_length)
+        if sum > 100:
+            tile_length[-1] -= (sum - 100)
+        for i in range(len(tile_length)):
+            for j in range(tile_length[i]):
+                if i % 2 == 0:
+                    # this generates which mino is shown
+                    initial_stack += random.choice(["80","81","82","83","84","85","86","87"])
+                else:
+                    # no mino
+                    initial_stack += "2F"
+        print(initial_stack)
+        return initial_stack
+
+    @staticmethod
+    def generate_tiles(num_pieces):
         tiles = [
-            "00",
-            "04",
-            "08", # I Tile
-            "0C", # Square Tile
-            "10", # Z Tile,
-            "14", # S Tile
-            "18"  # T Tile
+            "00", # L
+            "04", # J
+            "08", # I
+            "0C", # O
+            "10", # Z
+            "14", # S
+            "18"  # T
         ]
-        ret = ""
-        for i in range(256):
-            ret += random.choice(tiles)
-        return ret
+        pieces_array = []
+        pieces_array.append(random.randint(0, 255) % 7)
+        pieces_array.append(random.randint(0, 255) % 7)
+        three = 0
+        for i in range(2, num_pieces):
+            for j in range(3):
+                new_piece = random.randint(0, 255) % 7
+                if pieces_array[i-2] != (pieces_array[i - 2] | pieces_array[i - 1] | new_piece):
+                    break
+            pieces_array.append(new_piece)
+            if pieces_array[i] == 6 and pieces_array[i-2] == pieces_array[i-1] and pieces_array[i-2] == pieces_array[i]:
+                three += 1
+        return ''.join(list(map(lambda x : tiles[x], pieces_array)))
 
 
     async def process(self, client, msg):
@@ -186,7 +233,7 @@ class Game:
             client.level = level
             await self.send_gameinfo()
         elif msg["type"] == "lines":
-            print("Lines received")
+            print("Lines received:", msg["lines"] - 128)
             if self.state != self.GAME_STATE_RUNNING:
                 print("Game is not running. Error.")
                 return
@@ -305,11 +352,9 @@ async def newserver(websocket, path):
 
 
 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-cert = "..."
-key = "..."
 
-ssl_context.load_cert_chain(certfile=cert, keyfile=key)
+ssl_context.load_cert_chain(certfile=FULLCHAIN_CERT_PATH, keyfile=PRIVKEY_PATH)
 
-start_server = websockets.serve(newserver, '0.0.0.0', 5678, ping_interval=None, ssl=ssl_context)
+start_server = websockets.serve(newserver, '0.0.0.0', WEBSOCKET_PORT, ping_interval=None, ssl=ssl_context)
 asyncio.get_event_loop().run_until_complete(start_server)
 asyncio.get_event_loop().run_forever()
