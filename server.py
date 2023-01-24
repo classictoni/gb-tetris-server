@@ -110,11 +110,21 @@ class Game:
     async def send_lines(self, lines, sender_uuid):
         for c in self.clients:
             if c.uuid == sender_uuid:
-                print("Don't send lines to sender")
+                # Don't send lines to sender
                 continue
             await c.send(json.dumps({
                 "type": "lines",
                 "lines": lines
+            }))
+
+    async def send_reached_30_lines(self, sender_uuid):
+        for c in self.clients:
+            if c.uuid == sender_uuid:
+                # Don't send to sender
+                continue
+            print("sending reached lines")
+            await c.send(json.dumps({
+                "type": "reached_30_lines"
             }))
 
     async def send_gameinfo(self):
@@ -168,6 +178,8 @@ class Game:
         initial_stack = ""
         tile_length = []
         current_index = 0
+        #possible_minos = ["0C", "1D", "0E", "0C", "27"]
+        mino_pointer = 0
         sum = 0
         while sum < 100:
             random_length = random.randint(1, 5)
@@ -180,6 +192,8 @@ class Game:
                 if i % 2 == 0:
                     # this generates which mino is shown
                     initial_stack += random.choice(["80","81","82","83","84","85","86","87"])
+                    #initial_stack += possible_minos[mino_pointer % 5]
+                    #mino_pointer += 1
                 else:
                     # no mino
                     initial_stack += "2F"
@@ -238,6 +252,8 @@ class Game:
                 print("Game is not running. Error.")
                 return
             await self.send_lines(msg["lines"], client.uuid)
+        elif msg["type"] == "reached_30_lines":
+            await self.send_reached_30_lines(client.uuid)
         elif msg["type"] == "dead":
             if self.state == self.GAME_STATE_FINISHED:
                 print("User might just have died.. ignore")
