@@ -94,6 +94,7 @@ class Game:
         self.admin_socket = admin_socket
         self.clients = [admin_socket]
         self.state = self.GAME_STATE_LOBBY
+        self.preset_rng = {'garbage': None, 'pieces': None, 'well_column': None} # if None, generate using near GB RNG
     
     def get_gameinfo(self):
         users = []
@@ -150,13 +151,20 @@ class Game:
 
     async def start_game(self):
         self.state = self.GAME_STATE_RUNNING
+        if self.preset_rng['garbage'] is not None:
+            garbage = self.preset_rng['garbage']
+        else:
+            garbage = Game.generate_random_garbage()
         await self.send_all({
             "type": "garbage",
-            "garbage": Game.generate_garbage()
+            "garbage": garbage
         })
+        pieces = Game.generate_pieces(256, beginning=self.preset_rng['pieces'])
+        if self.preset_rng['well_column'] is not None:
+            pieces = pieces[0:510] + self.preset_rng['well_column']
         await self.send_all({
             "type": "start_game",
-            "tiles": Game.generate_tiles(256)
+            "tiles": pieces
         })
     
     def alive_count(self):
@@ -174,7 +182,7 @@ class Game:
 
     # thx tolstoj
     @staticmethod
-    def generate_garbage():
+    def generate_random_garbage():
         initial_stack = ""
         tile_length = []
         current_index = 0
@@ -201,7 +209,7 @@ class Game:
         return initial_stack
 
     @staticmethod
-    def generate_tiles(num_pieces):
+    def generate_pieces(num_pieces, beginning=None):
         tiles = [
             "00", # L
             "04", # J
@@ -211,11 +219,16 @@ class Game:
             "14", # S
             "18"  # T
         ]
-        pieces_array = []
-        pieces_array.append(random.randint(0, 255) % 7)
-        pieces_array.append(random.randint(0, 255) % 7)
+        if beginning is None:
+            pieces_array = []
+        else:
+            # TODO: make sure it doesn't fail when pieces are rotated
+            pieces_array = [int(beginning[i:i + 2], 16) // 4 for i in range(0, len(beginning), 2)]
+
+        for i in range(len(pieces_array), 2):
+            pieces_array.append(random.randint(0, 255) % 7)
         three = 0
-        for i in range(2, num_pieces):
+        for i in range(len(pieces_array), num_pieces):
             for j in range(3):
                 new_piece = random.randint(0, 255) % 7
                 if pieces_array[i-2] != (pieces_array[i - 2] | pieces_array[i - 1] | new_piece):
@@ -223,7 +236,8 @@ class Game:
             pieces_array.append(new_piece)
             if pieces_array[i] == 6 and pieces_array[i-2] == pieces_array[i-1] and pieces_array[i-2] == pieces_array[i]:
                 three += 1
-        return ''.join(list(map(lambda x : tiles[x], pieces_array)))
+        random_pieces_as_string = ''.join(list(map(lambda x : tiles[x], pieces_array)))
+        return beginning + random_pieces_as_string[len(beginning):]
 
 
     async def process(self, client, msg):
@@ -254,6 +268,26 @@ class Game:
             await self.send_lines(msg["lines"], client.uuid)
         elif msg["type"] == "reached_30_lines":
             await self.send_reached_30_lines(client.uuid)
+        elif msg["type"] == "preset_rng":
+            # Check if game state is correct.
+            if self.state != self.GAME_STATE_LOBBY:
+                print("Error: Game already running or finished")
+                return
+            # Check if admin.
+            if client != self.admin_socket:
+                print("Error: Not an admin.")
+                return
+            print('msg received')
+            print(msg)
+            if len(msg["garbage"]) == 200:
+                print('received custom garbage')
+                self.preset_rng['garbage'] = msg["garbage"]
+            else:
+                print('bad custom garbage length. must be a string of exactly 200 hex-nibbles')
+            if msg['pieces'] is not None and len(msg['pieces']) > 0 and len(msg['pieces']) % 2 == 0:
+                self.preset_rng['pieces'] = msg['pieces'][:512] # preset no more than 256 pieces
+            if 'well_column' in msg and msg['well_column'] is not None and len(msg['well_column']) == 2:
+                self.preset_rng['well_column'] = msg['well_column']
         elif msg["type"] == "dead":
             if self.state == self.GAME_STATE_FINISHED:
                 print("User might just have died.. ignore")
