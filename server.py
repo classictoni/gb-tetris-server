@@ -42,7 +42,7 @@ class Client:
         self.name = name
         self.uuid = str(uuid.uuid4())
         self.socket = socket
-        self.level = 0
+        self.height = 0
         self.state = self.STATE_ALIVE
     
     def set_game(self, game):
@@ -74,7 +74,7 @@ class Client:
     def serialize(self):
         return {
             "name": self.name,
-            "level": self.level,
+            "height": self.height,
             "state": self.state,
             "uuid": self.uuid
         }
@@ -220,6 +220,7 @@ class Game:
             "18"  # T
         ]
         if beginning is None:
+            beginning = ''
             pieces_array = []
         else:
             # TODO: make sure it doesn't fail when pieces are rotated
@@ -257,8 +258,7 @@ class Game:
             if self.state != self.GAME_STATE_RUNNING:
                 print("Game is not running. Error.")
                 return
-            level = msg["level"]
-            client.level = level
+            client.height = msg["height"]
             await self.send_gameinfo()
         elif msg["type"] == "lines":
             print("Lines received:", msg["lines"] - 128)
@@ -376,7 +376,7 @@ async def newserver(websocket, path):
         await client.process()
     # Or join an existing game
     elif(path.startswith("/join/")):
-        game_name = path[6:]
+        game_name = path[6:].upper()
         print(f"join game with id: >{game_name}<")
         if not game_name in games:
             error = {
