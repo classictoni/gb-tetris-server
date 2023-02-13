@@ -279,12 +279,12 @@ class Game:
                 return
             print('msg received')
             print(msg)
-            if len(msg["garbage"]) == 200:
+            if 'garbage' in msg and msg['garbage'] is not None and len(msg["garbage"]) == 200:
                 print('received custom garbage')
                 self.preset_rng['garbage'] = msg["garbage"]
             else:
                 print('bad custom garbage length. must be a string of exactly 200 hex-nibbles')
-            if msg['pieces'] is not None and len(msg['pieces']) > 0 and len(msg['pieces']) % 2 == 0:
+            if 'pieces' in msg and msg['pieces'] is not None and len(msg['pieces']) > 0 and len(msg['pieces']) % 2 == 0:
                 self.preset_rng['pieces'] = msg['pieces'][:512] # preset no more than 256 pieces
             if 'well_column' in msg and msg['well_column'] is not None and len(msg['well_column']) == 2:
                 self.preset_rng['well_column'] = msg['well_column']
