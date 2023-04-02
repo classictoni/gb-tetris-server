@@ -44,6 +44,7 @@ class Client:
         self.socket = socket
         self.height = 0
         self.state = self.STATE_ALIVE
+        self.num_wins = 0
     
     def set_game(self, game):
         print("Setting game...")
@@ -65,6 +66,7 @@ class Client:
     
     def set_winner(self):
         self.state = self.STATE_WINNER
+        self.num_wins += 1
 
     async def send(self, f):
         print("Sending..")
@@ -76,13 +78,15 @@ class Client:
             "name": self.name,
             "height": self.height,
             "state": self.state,
-            "uuid": self.uuid
+            "uuid": self.uuid,
+            "num_wins": self.num_wins
         }
 
 class Game:
     GAME_STATE_LOBBY = 0
     GAME_STATE_RUNNING = 1
-    GAME_STATE_FINISHED = 2
+    GAME_STATE_BETWEEN = 2
+    GAME_STATE_FINISHED = 3
 
     def _generate_name(self):
         lobby_name = ''.join(random.choice(string.ascii_uppercase) for i in range(4))
@@ -151,6 +155,8 @@ class Game:
 
     async def start_game(self):
         self.state = self.GAME_STATE_RUNNING
+        for c in self.clients:
+            c.state = Client.STATE_ALIVE
         if self.preset_rng['garbage'] is not None:
             garbage = self.preset_rng['garbage']
         else:
@@ -245,8 +251,8 @@ class Game:
         print(f"Processing {client.name} with msg {msg}")
         if msg["type"] == "start":
             # Check if game state is correct.
-            if self.state != self.GAME_STATE_LOBBY:
-                print("Error: Game already running or finished")
+            if self.state != self.GAME_STATE_LOBBY and self.state != self.GAME_STATE_BETWEEN:
+                print("Error: Game already running or finished", self.state)
                 return
             # Check if admin.
             if client != self.admin_socket:
@@ -267,7 +273,15 @@ class Game:
                 return
             await self.send_lines(msg["lines"], client.uuid)
         elif msg["type"] == "reached_30_lines":
+            #TODO set num_wins and state
+            client.set_winner()
+            for c in self.clients:
+                if c.uuid == client.uuid:
+                    continue
+                c.set_dead()
+            self.state = self.GAME_STATE_BETWEEN
             await self.send_reached_30_lines(client.uuid)
+            await self.send_gameinfo()
         elif msg["type"] == "preset_rng":
             # Check if game state is correct.
             if self.state != self.GAME_STATE_LOBBY:
@@ -289,30 +303,23 @@ class Game:
             if 'well_column' in msg and msg['well_column'] is not None and len(msg['well_column']) == 2:
                 self.preset_rng['well_column'] = msg['well_column']
         elif msg["type"] == "dead":
-            if self.state == self.GAME_STATE_FINISHED:
+            if self.state == self.GAME_STATE_FINISHED or self.state == self.GAME_STATE_BETWEEN:
                 print("User might just have died.. ignore")
                 return
             if self.state != self.GAME_STATE_RUNNING:
                 print("Game is not running. Error.")
                 return
             print("User died")
-            # Get alive count..
+            client.set_dead()
             alive_count = self.alive_count()
-            if alive_count == 2:
+            if alive_count == 1:
                 # We have a winner!
-                client.set_dead()
                 winner = self.get_last_alive()
                 winner.set_winner()
                 await winner.send(json.dumps({
                     "type": "win"
                 }))
-                self.state = self.GAME_STATE_FINISHED
-            elif alive_count > 1:
-                print("Set dead")
-                client.set_dead()
-            else:
-                print("Solo")
-                client.set_dead()
+                self.state = self.GAME_STATE_BETWEEN
             await self.send_gameinfo()
         
             
